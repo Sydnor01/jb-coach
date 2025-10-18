@@ -1,0 +1,8 @@
+{
+  "name": "Just Begin Coaching",
+  "short_name": "JB Coaching",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#6EE7B7"
+}
