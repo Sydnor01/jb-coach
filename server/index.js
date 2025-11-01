@@ -1,172 +1,265 @@
-// index.js — Express API with JWT auth + client week storage (SQLite)
-// ESM compatible (package.json has "type":"module")
-
-import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
+import cookieParser from "cookie-parser";
+import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import bcrypt from "bcryptjs";
 import sqlite3 from "sqlite3";
+import { open } from "sqlite";
+import rateLimit from "express-rate-limit";
+import dotenv from "dotenv";
 
-// -------------------------
-// Config
-// -------------------------
-const PORT = process.env.PORT || 4000;
-const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
+dotenv.config();
 
-// -------------------------
-// Database (SQLite)
-// -------------------------
-sqlite3.verbose();
-const db = new sqlite3.Database("./app.db");
-
-// Create tables if they don't exist
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      email TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS client_weeks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      client_id INTEGER NOT NULL,
-      week INTEGER NOT NULL,
-      data TEXT,
-      updated_at TEXT NOT NULL,
-      UNIQUE (client_id, week)
-    )
-  `);
-});
-
-// -------------------------
-// App + Middleware
-// -------------------------
 const app = express();
-app.use(cors());
-app.use(express.json());
+app.set("trust proxy", 1); // Render behind proxy
 
-// Auth middleware
-function auth(req, res, next) {
-  try {
-    const header = req.headers.authorization || "";
-    const token = header.startsWith("Bearer ") ? header.slice(7) : null;
-    if (!token) return res.status(401).json({ error: "No token" });
-    const payload = jwt.verify(token, JWT_SECRET);
-    req.user = { id: payload.sub, email: payload.email };
-    next();
-  } catch (e) {
-    return res.status(401).json({ error: "Invalid or expired token." });
-  }
-}
-
-// -------------------------
-// Auth routes
-// -------------------------
-app.post("/signup", (req, res) => {
-  const { email, password } = req.body || {};
-  if (!email || !password) return res.status(400).json({ error: "Email and password required." });
-  const hash = bcrypt.hashSync(password, 10);
-  const stmt = db.prepare("INSERT INTO users (email, password_hash) VALUES (?, ?)");
-  stmt.run(email, hash, function (err) {
-    if (err) {
-      if (String(err.message).includes("UNIQUE")) {
-        return res.status(409).json({ error: "Email already exists." });
-      }
-      return res.status(500).json({ error: "Signup failed." });
-    }
-    return res.json({ success: true, user: { id: this.lastID, email } });
-  });
-});
-
-app.post("/login", (req, res) => {
-  const { email, password } = req.body || {};
-  if (!email || !password) return res.status(400).json({ error: "Email and password required." });
-
-  db.get("SELECT * FROM users WHERE email = ?", [email], (err, row) => {
-    if (err) return res.status(500).json({ error: "Login failed." });
-    if (!row) return res.status(401).json({ error: "Invalid credentials." });
-    const ok = bcrypt.compareSync(password, row.password_hash);
-    if (!ok) return res.status(401).json({ error: "Invalid credentials." });
-
-    const token = jwt.sign({ sub: row.id, email: row.email }, JWT_SECRET, { expiresIn: "7d" });
-    return res.json({ token, user: { id: row.id, email: row.email } });
-  });
-});
-
-app.get("/me", auth, (req, res) => {
-  return res.json({ user: { id: req.user.id, email: req.user.email } });
-});
-
-// -------------------------
-// Coach: clients list (mock for now)
-// -------------------------
-const MOCK_CLIENTS = [
-  { id: 101, name: "Alicia Brown", email: "alicia@example.com", currentWeek: 7,  lastActive: "2025-10-01" },
-  { id: 102, name: "Ben Carter",   email: "ben@example.com",    currentWeek: 3,  lastActive: "2025-09-29" },
-  { id: 103, name: "Chloe Diaz",   email: "chloe@example.com",  currentWeek: 12, lastActive: "2025-10-04" },
+const ORIGINS = [
+  "https://jb-coach-6862.vercel.app",
+  "http://localhost:3000"
 ];
 
-app.get("/clients", auth, (req, res) => {
-  return res.json({ clients: MOCK_CLIENTS });
+app.use(helmet());
+
+
+app.use(
+  cors({
+    origin: ["http://localhost:3000"],
+    credentials: true,
+  })
+);
+// Handle CORS preflight cleanly for all routes
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && ["http://localhost:3000"].includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin);
+  }
+  res.header("Vary", "Origin");
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
 });
 
-// -------------------------
-// NEW: Week data (GET + SAVE)
-// -------------------------
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.header("Access-Control-Allow-Credentials", "true");
+  if (req.method === "OPTIONS") return res.sendStatus(200);
+  next();
+});
 
-// Get a client’s week data (read-only view).
-app.get("/clients/:id/weeks/:week", auth, (req, res) => {
-  const clientId = Number(req.params.id);
-  const week = Number(req.params.week);
-  if (!clientId || !week) return res.status(400).json({ error: "Bad params." });
 
-  db.get(
-    "SELECT data, updated_at FROM client_weeks WHERE client_id = ? AND week = ?",
-    [clientId, week],
-    (err, row) => {
-      if (err) return res.status(500).json({ error: "DB error." });
-      if (!row) return res.json({ clientId, week, data: null, updatedAt: null });
-      let data = null;
-      try { data = row.data ? JSON.parse(row.data) : null; } catch {}
-      return res.json({ clientId, week, data, updatedAt: row.updated_at });
-    }
+app.use(express.json({ limit: "1mb" }));
+app.use(cookieParser());
+
+const authLimiter = rateLimit({ windowMs: 15*60*1000, max: 100 });
+app.use(["/login","/signup","/auth/refresh"], authLimiter);
+
+const {
+  JWT_SECRET = "dev-secret-change-me",
+  JWT_REFRESH_SECRET = "dev-refresh-secret-change-me",
+  ACCESS_TOKEN_TTL = "15m",
+  REFRESH_TOKEN_TTL_SECONDS = 60*60*24*7
+} = process.env;
+
+const COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: true,
+  sameSite: "none",
+  path: "/",
+};
+
+// DB open
+let db;
+(async () => {
+  db = await open({ filename: "./db.sqlite", driver: sqlite3.Database });
+  await db.exec(`PRAGMA foreign_keys = ON;`);
+})();
+
+// helpers
+function signAccessToken(payload) {
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: ACCESS_TOKEN_TTL });
+}
+function signRefreshToken(payload) {
+  return jwt.sign(payload, JWT_REFRESH_SECRET, { expiresIn: REFRESH_TOKEN_TTL_SECONDS });
+}
+function nowPlusSeconds(s) {
+  return new Date(Date.now() + s*1000);
+}
+
+// refresh token storage (hash)
+async function saveRefreshToken(userId, rawToken, expiresAt) {
+  const token_hash = await bcrypt.hash(rawToken, 10);
+  await db.run(
+    `INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES (?,?,?)`,
+    [userId, token_hash, expiresAt.toISOString()]
   );
-});
-
-// Save (create or update) a client’s week data.
-app.post("/clients/:id/weeks/:week", auth, (req, res) => {
-  const clientId = Number(req.params.id);
-  const week = Number(req.params.week);
-  const payload = req.body?.data ?? null; // any JSON object
-  if (!clientId || !week) return res.status(400).json({ error: "Bad params." });
-
-  const json = JSON.stringify(payload ?? null);
-  const now = new Date().toISOString();
-
-  // UPSERT using INSERT OR REPLACE on the UNIQUE(client_id, week)
-  db.run(
-    `
-    INSERT INTO client_weeks (client_id, week, data, updated_at)
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT(client_id, week) DO UPDATE SET
-      data = excluded.data,
-      updated_at = excluded.updated_at
-    `,
-    [clientId, week, json, now],
-    function (err) {
-      if (err) return res.status(500).json({ error: "DB write error." });
-      return res.json({ ok: true, clientId, week, updatedAt: now });
+}
+async function rotateRefreshToken(oldRaw, userId) {
+  const rows = await db.all(`SELECT id, token_hash FROM refresh_tokens WHERE user_id=? AND revoked_at IS NULL`, [userId]);
+  for (const r of rows) {
+    const ok = await bcrypt.compare(oldRaw, r.token_hash);
+    if (ok) {
+      await db.run(`UPDATE refresh_tokens SET revoked_at=CURRENT_TIMESTAMP WHERE id=?`, [r.id]);
+      break;
     }
+  }
+}
+async function isValidRefresh(userId, raw) {
+  const rows = await db.all(
+    `SELECT token_hash, expires_at FROM refresh_tokens
+     WHERE user_id=? AND revoked_at IS NULL AND DATETIME(expires_at) > DATETIME('now')`,
+    [userId]
   );
+  for (const r of rows) {
+    if (await bcrypt.compare(raw, r.token_hash)) return true;
+  }
+  return false;
+}
+
+// auth middlewares
+function authRequired(req, res, next) {
+  const raw = req.cookies.accessToken || (req.headers.authorization || "").replace("Bearer ","").trim();
+  if (!raw) return res.status(401).json({ error: "Missing token" });
+  try {
+    const payload = jwt.verify(raw, JWT_SECRET);
+    req.user = payload;
+    next();
+  } catch {
+    return res.status(401).json({ error: "Invalid or expired token" });
+  }
+}
+function requireRole(role) {
+  return (req, res, next) => {
+    if (!req.user || req.user.role !== role) return res.status(403).json({ error: "Forbidden" });
+    next();
+  };
+}
+
+// health
+app.get("/health", (_req, res) => res.json({ ok: true }));
+
+// SIGNUP
+app.post("/signup", async (req, res) => {
+  const { email, password, role } = req.body || {};
+  if (!email || !password || !["coach","client"].includes(role)) {
+    return res.status(400).json({ error: "Email, password, and valid role required" });
+  }
+  const hash = await bcrypt.hash(password, 12);
+  try {
+    const result = await db.run(
+      `INSERT INTO users (email, password_hash, role) VALUES (?,?,?)`,
+      [email, hash, role]
+    );
+    const user = { id: result.lastID, email, role };
+    const access = signAccessToken(user);
+    const refresh = signRefreshToken({ id: user.id });
+    await saveRefreshToken(user.id, refresh, nowPlusSeconds(parseInt(REFRESH_TOKEN_TTL_SECONDS,10)));
+
+    res.cookie("accessToken", access, { ...COOKIE_OPTIONS, maxAge: 15*60*1000 });
+    res.cookie("refreshToken", refresh, { ...COOKIE_OPTIONS, maxAge: parseInt(REFRESH_TOKEN_TTL_SECONDS,10)*1000 });
+    return res.json({ success: true, user });
+  } catch (e) {
+    if (String(e).includes("UNIQUE")) return res.status(409).json({ error: "Email already registered" });
+    return res.status(500).json({ error: "Signup failed" });
+  }
 });
 
-// -------------------------
-// Start
-// -------------------------
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+// LOGIN
+app.post("/login", async (req, res) => {
+  const { email, password } = req.body || {};
+  if (!email || !password) return res.status(400).json({ error: "Email and password are required" });
+
+  const row = await db.get(`SELECT * FROM users WHERE email=?`, [email]);
+  if (!row) return res.status(401).json({ error: "Invalid credentials" });
+  const ok = await bcrypt.compare(password, row.password_hash);
+  if (!ok) return res.status(401).json({ error: "Invalid credentials" });
+
+  const user = { id: row.id, email: row.email, role: row.role };
+  const access = signAccessToken(user);
+  const refresh = signRefreshToken({ id: row.id });
+  await saveRefreshToken(row.id, refresh, nowPlusSeconds(parseInt(REFRESH_TOKEN_TTL_SECONDS,10)));
+
+  res.cookie("accessToken", access, { ...COOKIE_OPTIONS, maxAge: 15*60*1000 });
+  res.cookie("refreshToken", refresh, { ...COOKIE_OPTIONS, maxAge: parseInt(REFRESH_TOKEN_TTL_SECONDS,10)*1000 });
+  return res.json({ success: true, user });
 });
+
+// ME
+app.get("/health", (req, res) => res.json({ ok: true }));
+app.get("/me", authRequired, async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  return res.json({ id: req.user.id, email: req.user.email, role: req.user.role });
+});
+
+
+// REFRESH
+app.post("/auth/refresh", async (req, res) => {
+  const refresh = req.cookies.refreshToken;
+  if (!refresh) return res.status(401).json({ error: "Missing refresh token" });
+  try {
+    const { id } = jwt.verify(refresh, JWT_REFRESH_SECRET);
+    const ok = await isValidRefresh(id, refresh);
+    if (!ok) return res.status(401).json({ error: "Invalid refresh token" });
+
+    await rotateRefreshToken(refresh, id);
+    const newRefresh = signRefreshToken({ id });
+    await saveRefreshToken(id, newRefresh, nowPlusSeconds(parseInt(REFRESH_TOKEN_TTL_SECONDS,10)));
+
+    const row = await db.get(`SELECT id,email,role FROM users WHERE id=?`, [id]);
+    const access = signAccessToken({ id: row.id, email: row.email, role: row.role });
+
+    res.cookie("accessToken", access, { ...COOKIE_OPTIONS, maxAge: 15*60*1000 });
+    res.cookie("refreshToken", newRefresh, { ...COOKIE_OPTIONS, maxAge: parseInt(REFRESH_TOKEN_TTL_SECONDS,10)*1000 });
+    return res.json({ success: true });
+  } catch {
+    return res.status(401).json({ error: "Invalid refresh token" });
+  }
+});
+
+// LOGOUT
+app.post("/logout", authRequired, async (req, res) => {
+  const refresh = req.cookies.refreshToken;
+  if (refresh) await rotateRefreshToken(refresh, req.user.id);
+  res.clearCookie("accessToken", COOKIE_OPTIONS);
+  res.clearCookie("refreshToken", COOKIE_OPTIONS);
+  return res.json({ success: true });
+});
+
+// COACH-ONLY: list clients
+app.get("/clients", authRequired, requireRole("coach"), async (_req, res) => {
+  const clients = await db.all(`SELECT id,email FROM users WHERE role='client'`);
+  res.json({ clients });
+});
+
+// WEEK DATA (self or coach)
+app.post("/clients/:id/weeks/:week", authRequired, async (req, res) => {
+  const targetUserId = Number(req.params.id);
+  const week = Number(req.params.week);
+  const isSelf = req.user.id === targetUserId;
+  const canWrite = isSelf || req.user.role === "coach";
+  if (!canWrite) return res.status(403).json({ error: "Forbidden" });
+  const payload = JSON.stringify(req.body || {});
+  await db.run(`
+    INSERT INTO week_data (user_id, week, data, updated_at)
+    VALUES (?,?,?,CURRENT_TIMESTAMP)
+    ON CONFLICT(user_id,week) DO UPDATE SET data=excluded.data, updated_at=CURRENT_TIMESTAMP
+  `, [targetUserId, week, payload]);
+  res.json({ success: true });
+});
+
+app.get("/clients/:id/weeks/:week", authRequired, async (req, res) => {
+  const targetUserId = Number(req.params.id);
+  const week = Number(req.params.week);
+  const isSelf = req.user.id === targetUserId;
+  const canRead = isSelf || req.user.role === "coach";
+  if (!canRead) return res.status(403).json({ error: "Forbidden" });
+  const row = await db.get(`SELECT data, updated_at FROM week_data WHERE user_id=? AND week=?`, [targetUserId, week]);
+  res.json({ data: row?.data ? JSON.parse(row.data) : null, updated_at: row?.updated_at || null });
+});
+
+const PORT = process.env.PORT || 4000;
+app.listen(PORT, () => console.log(`Server listening on ${PORT}`));
