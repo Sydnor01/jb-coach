@@ -1,70 +1,36 @@
-// src/api.js
-const API_BASE = "http://localhost:4000";
+import axios from "axios";
 
-// --- token helpers ---
-const TOKEN_KEY = "jb_token";
-export function setToken(t) {
-  localStorage.setItem(TOKEN_KEY, t);
-}
-export function getToken() {
-  return localStorage.getItem(TOKEN_KEY) || "";
-}
-export function clearToken() {
-  localStorage.removeItem(TOKEN_KEY);
-}
+// Decide the base URL depending on where the app is running
+const isBrowser = typeof window !== "undefined";
+const isLocalhost =
+  isBrowser && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
 
-function makeHeaders(isJson = true) {
-  const h = {};
-  if (isJson) h["Content-Type"] = "application/json";
-  const t = getToken();
-  if (t) h["Authorization"] = `Bearer ${t}`;
-  return h;
-}
+// If you ever set REACT_APP_API_BASE, it still wins.
+// Otherwise: localhost in dev, Render URL in production.
+const envBase = process.env.REACT_APP_API_BASE;
+const API_BASE = envBase || (isLocalhost
+  ? "http://localhost:4000"
+  : "https://jb-coach-server.onrender.com"
+);
 
-async function parseJsonOrThrow(res) {
-  const text = await res.text();
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error(
-      `Unexpected response (not JSON). Is the server on port 4000 and the path correct? Response starts with: ${text.slice(
-        0,
-        120
-      )}`
-    );
-  }
+console.log("API base URL:", API_BASE);
+
+const api = axios.create({
+  baseURL: API_BASE,
+  withCredentials: true, // important for cookies
+});
+
+export function apiGet(path) {
+  return api.get(path).then((res) => res.data);
 }
 
-export async function apiPost(path, body) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: "POST",
-    headers: makeHeaders(true),
-    body: JSON.stringify(body || {}),
-  });
-  if (!res.ok) {
-    const data = await parseJsonOrThrow(res);
-    throw new Error(data.error || `HTTP ${res.status}`);
-  }
-  return parseJsonOrThrow(res);
+export function apiPost(path, body) {
+  return api.post(path, body).then((res) => res.data);
 }
 
-export async function apiGet(path) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: "GET",
-    headers: makeHeaders(false),
-  });
-  if (!res.ok) {
-    const data = await parseJsonOrThrow(res);
-    throw new Error(data.error || `HTTP ${res.status}`);
-  }
-  return parseJsonOrThrow(res);
+export function apiLogout() {
+  return apiPost("/logout", {});
 }
 
-// Convenience wrappers used elsewhere
-export async function getClientWeek(clientId, week) {
-  return apiGet(`/clients/${clientId}/weeks/${week}`);
-}
+export default api;
 
-export async function saveClientWeek(clientId, week, data) {
-  return apiPost(`/clients/${clientId}/weeks/${week}`, { data });
-}
