@@ -1,18 +1,18 @@
 import React, { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { apiPost, apiGet } from "../api";
 
 export default function Login({ setUser }) {
-  const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   async function handleSubmit(e) {
-    e.preventDefault(); // IMPORTANT: stop full page refresh
+    e.preventDefault(); // stop full page refresh
     setError("");
     setLoading(true);
+
     try {
       // 1) hit /login (sets cookie on success)
       const res = await apiPost("/login", { email, password });
@@ -30,22 +30,24 @@ export default function Login({ setUser }) {
         await apiGet("/me");
       } catch {}
 
-      // 3) redirect by role
+      // 3) redirect by role (use full page navigation instead of useNavigate)
       if (u.role === "coach") {
-        navigate("/coach");
+        window.location.assign("/coach");
       } else {
-        navigate("/client");
+        window.location.assign("/client");
       }
     } catch (err) {
       const msg =
-  (err && err.response && err.response.data && err.response.data.error) ||
-  err?.message ||
-  "Login failed";
-setError(msg);
-
+        (err &&
+          err.response &&
+          err.response.data &&
+          err.response.data.error) ||
+        err?.message ||
+        "Login failed";
+      setError(msg);
     } finally {
       setLoading(false);
-      // DO NOT clear email/password here, so fields don’t “disappear”
+      // keep email/password so they don’t disappear
     }
   }
 
@@ -82,7 +84,14 @@ setError(msg);
         <button
           type="submit"
           disabled={loading}
-          style={{ width: "100%", padding: 10, background: "#111827", color: "#fff", border: "none", cursor: "pointer" }}
+          style={{
+            width: "100%",
+            padding: 10,
+            background: "#111827",
+            color: "#fff",
+            border: "none",
+            cursor: "pointer",
+          }}
         >
           {loading ? "Signing in…" : "Log In"}
         </button>
