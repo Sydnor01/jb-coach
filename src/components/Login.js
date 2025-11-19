@@ -1,76 +1,107 @@
-// src/components/Login.js
 import React, { useState } from "react";
-import { apiPost, apiGet, setToken, getToken, clearToken } from "../api";
+import { useNavigate, Link } from "react-router-dom";
+import { apiPost, apiGet } from "../api";
 
-export default function Login() {
-  const [email, setEmail] = useState("test@example.com");
-  const [password, setPassword] = useState("Password123!");
-  const [msg, setMsg] = useState("");
+export default function Login({ setUser }) {
+  const navigate = useNavigate();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  async function handleLogin(e) {
-    e.preventDefault();
-    setMsg("…logging in");
+  async function handleSubmit(e) {
+    e.preventDefault(); // IMPORTANT: stop full page refresh
+    setError("");
+    setLoading(true);
     try {
+      // 1) hit /login (sets cookie on success)
       const res = await apiPost("/login", { email, password });
-      setToken(res.token);
-      setMsg(`✅ Logged in as ${res.user.email}`);
-    } catch (err) {
-      setMsg(`❌ ${err.message}`);
-    }
-  }
+      if (!res?.success || !res?.user) {
+        throw new Error("Login failed");
+      }
 
-  async function handleMe() {
-    setMsg("…checking profile");
-    try {
-      const res = await apiGet("/me");
-      setMsg(`✅ Token is valid. User: ${res.user.email}`);
-    } catch (err) {
-      setMsg(`❌ ${err.message}`);
-    }
-  }
+      // 2) trust server’s /login response, set user & route
+      const u = res.user;
+      setUser(u);
+      localStorage.setItem("user", JSON.stringify(u));
 
-  function handleLogout() {
-    clearToken();
-    setMsg("✅ Logged out");
+      // (optional) verify session
+      try {
+        await apiGet("/me");
+      } catch {}
+
+      // 3) redirect by role
+      if (u.role === "coach") {
+        navigate("/coach");
+      } else {
+        navigate("/client");
+      }
+    } catch (err) {
+      const msg =
+  (err && err.response && err.response.data && err.response.data.error) ||
+  err?.message ||
+  "Login failed";
+setError(msg);
+
+    } finally {
+      setLoading(false);
+      // DO NOT clear email/password here, so fields don’t “disappear”
+    }
   }
 
   return (
-    <div style={{ maxWidth: 480 }}>
-      <h2>Login</h2>
+    <div style={{ maxWidth: 360, margin: "40px auto", textAlign: "center" }}>
+      <h2>JB Coaching App</h2>
+      <h3>Log In</h3>
 
-      <form onSubmit={handleLogin} style={{ display: "grid", gap: 8 }}>
-        <label>
-          Email
+      <form onSubmit={handleSubmit}>
+        <div style={{ textAlign: "left", marginBottom: 10 }}>
+          <label>Email</label>
           <input
+            type="email"
+            autoComplete="username"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            style={{ width: "100%" }}
+            style={{ width: "100%", padding: 8 }}
+            required
           />
-        </label>
+        </div>
 
-        <label>
-          Password
+        <div style={{ textAlign: "left", marginBottom: 16 }}>
+          <label>Password</label>
           <input
             type="password"
+            autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            style={{ width: "100%" }}
+            style={{ width: "100%", padding: 8 }}
+            required
           />
-        </label>
+        </div>
 
-        <button type="submit">Log In</button>
+        <button
+          type="submit"
+          disabled={loading}
+          style={{ width: "100%", padding: 10, background: "#111827", color: "#fff", border: "none", cursor: "pointer" }}
+        >
+          {loading ? "Signing in…" : "Log In"}
+        </button>
       </form>
 
-      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-        <button onClick={handleMe}>Check Profile</button>
-        <button onClick={handleLogout}>Log out</button>
-      </div>
+      {error && <p style={{ color: "crimson", marginTop: 10 }}>{error}</p>}
 
-      <p style={{ marginTop: 10, whiteSpace: "pre-wrap" }}>{msg}</p>
+      <p style={{ marginTop: 8 }}>
+        <Link to="/forgot" style={{ color: "#2563eb" }}>
+          Forgot password?
+        </Link>
+      </p>
 
-      <small style={{ color: "#6b7280" }}>
-        Stored token (starts with): {getToken().slice(0, 12) || "(none)"}
-      </small>
+      <p style={{ marginTop: 12 }}>
+        Don’t have an account?{" "}
+        <Link to="/signup" style={{ color: "#10b981" }}>
+          Create one
+        </Link>
+      </p>
     </div>
   );
 }
