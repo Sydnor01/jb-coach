@@ -71,6 +71,17 @@ export function saveClientWeek(clientId, week, data) {
 export function apiLogout() {
   return apiPost("/logout", {});
 }
+// Legacy token helpers kept for compatibility with older code.
+// They don't do anything now because we use httpOnly cookies instead.
+export function setToken(_t) {
+  // no-op
+}
+export function getToken() {
+  return null;
+}
+export function clearToken() {
+  // no-op
+}
 
 export default {
   get: apiGet,
