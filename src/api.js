@@ -1,36 +1,69 @@
-import axios from "axios";
+// Simple fetch-based API helper (no axios needed)
 
 // Decide the base URL depending on where the app is running
 const isBrowser = typeof window !== "undefined";
 const isLocalhost =
-  isBrowser && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+  isBrowser &&
+  (window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1");
 
-// If you ever set REACT_APP_API_BASE, it still wins.
-// Otherwise: localhost in dev, Render URL in production.
+// REACT_APP_API_BASE still wins if present
 const envBase = process.env.REACT_APP_API_BASE;
-const API_BASE = envBase || (isLocalhost
-  ? "http://localhost:4000"
-  : "https://jb-coach-server.onrender.com"
-);
+const API_BASE =
+  envBase ||
+  (isLocalhost
+    ? "http://localhost:4000"
+    : "https://jb-coach-server.onrender.com");
 
 console.log("API base URL:", API_BASE);
 
-const api = axios.create({
-  baseURL: API_BASE,
-  withCredentials: true, // important for cookies
-});
+// Internal helper to call the API with fetch
+async function request(path, options = {}) {
+  const url = API_BASE.replace(/\/+$/, "") + path;
+  const res = await fetch(url, {
+    credentials: "include", // important for cookies
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+    ...options,
+  });
+
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+
+  if (!res.ok) {
+    const message =
+      (data && (data.error || data.message)) ||
+      `Request failed with status ${res.status}`;
+    const err = new Error(message);
+    err.response = { status: res.status, data };
+    throw err;
+  }
+
+  return data;
+}
 
 export function apiGet(path) {
-  return api.get(path).then((res) => res.data);
+  return request(path, { method: "GET" });
 }
 
 export function apiPost(path, body) {
-  return api.post(path, body).then((res) => res.data);
+  return request(path, {
+    method: "POST",
+    body: JSON.stringify(body || {}),
+  });
 }
 
 export function apiLogout() {
   return apiPost("/logout", {});
 }
 
-export default api;
-
+export default {
+  get: apiGet,
+  post: apiPost,
+};
