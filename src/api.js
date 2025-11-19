@@ -59,6 +59,15 @@ export function apiPost(path, body) {
   });
 }
 
+// Helpers for coach/client week data
+export function getClientWeek(clientId, week) {
+  return apiGet(`/clients/${clientId}/weeks/${week}`);
+}
+
+export function saveClientWeek(clientId, week, data) {
+  return apiPost(`/clients/${clientId}/weeks/${week}`, data);
+}
+
 export function apiLogout() {
   return apiPost("/logout", {});
 }
@@ -67,3 +76,4 @@ export default {
   get: apiGet,
   post: apiPost,
 };
+
