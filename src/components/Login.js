@@ -54,6 +54,9 @@ export default function Login({ setUser }) {
     <div style={{ maxWidth: 360, margin: "40px auto", textAlign: "center" }}>
       <h2>JB Coaching App</h2>
       <h3>Log In</h3>
+      <p style={{ fontSize: 12, color: "#888" }}>
+      Current path: {window.location.pathname}
+    </p>
 
       <form onSubmit={handleSubmit}>
         <div style={{ textAlign: "left", marginBottom: 10 }}>
