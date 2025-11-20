@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
 import { apiPost, apiGet } from "../api";
 
 export default function Login({ setUser }) {
@@ -30,7 +29,7 @@ export default function Login({ setUser }) {
         await apiGet("/me");
       } catch {}
 
-      // 3) redirect by role (use full page navigation instead of useNavigate)
+      // 3) redirect by role using full-page navigation
       if (u.role === "coach") {
         window.location.assign("/coach");
       } else {
@@ -100,16 +99,22 @@ export default function Login({ setUser }) {
       {error && <p style={{ color: "crimson", marginTop: 10 }}>{error}</p>}
 
       <p style={{ marginTop: 8 }}>
-        <Link to="/forgot" style={{ color: "#2563eb" }}>
+        <a
+          href="/forgot"
+          style={{ color: "#2563eb", textDecoration: "none" }}
+        >
           Forgot password?
-        </Link>
+        </a>
       </p>
 
       <p style={{ marginTop: 12 }}>
         Don’t have an account?{" "}
-        <Link to="/signup" style={{ color: "#10b981" }}>
+        <a
+          href="/signup"
+          style={{ color: "#10b981", textDecoration: "none" }}
+        >
           Create one
-        </Link>
+        </a>
       </p>
     </div>
   );
