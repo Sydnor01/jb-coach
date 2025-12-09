@@ -1,52 +1,94 @@
 import React, { useEffect, useState } from "react";
+import { apiGet } from "../api";
 import WeeksPortal from "./WeeksPortal";
 
-/**
- * Protected area (now renders the Weeks portal after token verify).
- */
 export default function Dashboard() {
-  const [status, setStatus] = useState("Checking token…");
+  const [status, setStatus] = useState("checking"); // checking | ok | error
   const [user, setUser] = useState(null);
+  const [msg, setMsg] = useState("");
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      setStatus("No token found. Please log in.");
-      return;
-    }
+    let mounted = true;
     (async () => {
       try {
-        const res = await fetch("http://localhost:4000/me", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json();
-        if (res.ok && data.user) {
-          setUser(data.user);
-          setStatus("✅ Verified");
-        } else {
-          setStatus(data?.error || "Token invalid.");
-        }
-      } catch {
-        setStatus("Network/server error.");
+        // ✅ use apiGet so the Authorization header with your token is sent
+        const me = await apiGet("/me");
+        if (!mounted) return;
+        setUser(me.user);
+        setStatus("ok");
+      } catch (e) {
+        if (!mounted) return;
+        setStatus("error");
+        setMsg("Invalid or expired token. Please go back and log in again.");
       }
     })();
+    return () => { mounted = false; };
   }, []);
 
+  function goBack() {
+    window.location.href = "/";
+  }
+
+  function logout() {
+    localStorage.removeItem("jb_token");
+    window.location.href = "/";
+  }
+
+  if (status === "checking") {
+    return (
+      <div style={{ maxWidth: 960, margin: "0 auto", padding: 16 }}>
+        <h1>JB Coaching App</h1>
+        <p>Checking your session…</p>
+      </div>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <div style={{ maxWidth: 960, margin: "0 auto", padding: 16 }}>
+        <h1>JB Coaching App</h1>
+        <p style={{ color: "#b91c1c" }}>{msg}</p>
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          <button onClick={goBack} style={btnPrimary}>Back to Login</button>
+        </div>
+      </div>
+    );
+  }
+
+  // status === "ok"
   return (
-    <div style={{ display: "grid", gap: 12 }}>
-      <div style={{ padding: 16, border: "1px solid #e5e7eb", borderRadius: 12, background: "#fff" }}>
-        <h2 style={{ marginTop: 0 }}>Dashboard</h2>
-        <p>{status}</p>
-        {user && (
-          <div style={{ marginTop: 8 }}>
-            <div><strong>ID:</strong> {user.id}</div>
-            <div><strong>Email:</strong> {user.email}</div>
-          </div>
-        )}
+    <div style={{ maxWidth: 1100, margin: "0 auto", padding: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h1>JB Coaching App</h1>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={goBack} style={btnGhost}>Back</button>
+          <button onClick={logout} style={btnGhost}>Log out</button>
+        </div>
       </div>
 
-      {/* Mount point for your (protected) Weeks UI */}
-      {status === "✅ Verified" && <WeeksPortal />}
+      <h2>Dashboard</h2>
+      <p>✅ Verified</p>
+      <p><strong>User:</strong> {user?.email}</p>
+
+      <WeeksPortal />
     </div>
   );
 }
+
+const btnPrimary = {
+  background: "#4f46e5",
+  color: "white",
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "none",
+  cursor: "pointer",
+};
+
+const btnGhost = {
+  background: "white",
+  color: "#111827",
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "1px solid #e5e7eb",
+  cursor: "pointer",
+};

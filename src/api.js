@@ -1,5 +1,4 @@
 // Simple fetch-based API helper (no axios needed)
-
 // Decide the base URL depending on where the app is running
 const isBrowser = typeof window !== "undefined";
 const isLocalhost =

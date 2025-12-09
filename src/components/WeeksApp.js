@@ -1,5 +1,5 @@
 import React, { useState, Suspense } from "react";
-
+import LogoutButton from "./LogoutButton";
 /**
  * Dynamic Weeks loader
  * - Lazily imports ./Week1.js … ./Week24.js on demand.
@@ -52,13 +52,15 @@ export default function WeeksApp() {
   return (
     <div style={{ padding: 16, border: "1px solid #e5e7eb", borderRadius: 12, background: "#fff" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-        <strong>Jump to week:</strong>
+        <LogoutButton />
+<strong>Jump to week:</strong>
         <select
           value={week}
           onChange={(e) => setWeek(parseInt(e.target.value, 10))}
           style={sel}
         >
-          {Array.from({ length: WEEK_COUNT }, (_, i) => i + 1).map((n) => (
+        
+  {Array.from({ length: WEEK_COUNT }, (_, i) => i + 1).map((n) => (
             <option key={n} value={n}>
               Week {n}
             </option>
